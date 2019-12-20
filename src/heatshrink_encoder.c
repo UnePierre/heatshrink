@@ -79,7 +79,7 @@ heatshrink_encoder *heatshrink_encoder_alloc(uint8_t window_sz2,
     /* Note: 2 * the window size is used because the buffer needs to fit
      * (1 << window_sz2) bytes for the current input, and an additional
      * (1 << window_sz2) bytes for the previous buffer of input, which
-     * will be scanned for useful backreferences. */
+     * will be scanned for useful backrefs. */
     size_t buf_sz = (2U << window_sz2);
 
     heatshrink_encoder *hse = HEATSHRINK_MALLOC(sizeof(*hse) + buf_sz);
@@ -104,6 +104,7 @@ heatshrink_encoder *heatshrink_encoder_alloc(uint8_t window_sz2,
 }
 
 void heatshrink_encoder_free(heatshrink_encoder *hse) {
+    if (hse == NULL) { return; }
     size_t buf_sz = (2U << HEATSHRINK_ENCODER_WINDOW_BITS(hse));
 #if HEATSHRINK_USE_INDEX
     size_t index_sz = sizeof(struct hs_index) + hse->search_index->size;
@@ -207,36 +208,34 @@ HSE_poll_res heatshrink_encoder_poll(heatshrink_encoder *hse,
         LOG("-- polling, state %u (%s), flags 0x%02x\n",
             hse->state, state_names[hse->state], hse->flags);
 
-        const uint8_t in_state = hse->state;
-        HSE_state next_state;
-
+        uint8_t in_state = hse->state;
         switch (in_state) {
         case HSES_NOT_FULL:
             return HSER_POLL_EMPTY;
         case HSES_FILLED:
             do_indexing(hse);
-            next_state = HSES_SEARCH;
+            hse->state = HSES_SEARCH;
             break;
         case HSES_SEARCH:
-            next_state = st_step_search(hse);
+            hse->state = st_step_search(hse);
             break;
         case HSES_YIELD_TAG_BIT:
-            next_state = st_yield_tag_bit(hse, &oi);
+            hse->state = st_yield_tag_bit(hse, &oi);
             break;
         case HSES_YIELD_LITERAL:
-            next_state = st_yield_literal(hse, &oi);
+            hse->state = st_yield_literal(hse, &oi);
             break;
         case HSES_YIELD_BR_INDEX:
-            next_state = st_yield_br_index(hse, &oi);
+            hse->state = st_yield_br_index(hse, &oi);
             break;
         case HSES_YIELD_BR_LENGTH:
-            next_state = st_yield_br_length(hse, &oi);
+            hse->state = st_yield_br_length(hse, &oi);
             break;
         case HSES_SAVE_BACKLOG:
-            next_state = st_save_backlog(hse);
+            hse->state = st_save_backlog(hse);
             break;
         case HSES_FLUSH_BITS:
-            hse->state = (uint8_t)st_flush_bit_buffer(hse, &oi);
+            hse->state = st_flush_bit_buffer(hse, &oi);
             return HSER_POLL_EMPTY;
         case HSES_DONE:
             return HSER_POLL_EMPTY;
@@ -244,7 +243,6 @@ HSE_poll_res heatshrink_encoder_poll(heatshrink_encoder *hse,
             LOG("-- bad state %s\n", state_names[hse->state]);
             return HSER_POLL_ERROR_MISUSE;
         }
-        hse->state = (uint8_t)next_state;
 
         if (hse->state == in_state) {
             /* Check if output buffer is exhausted. */
@@ -298,7 +296,7 @@ static HSE_state st_step_search(heatshrink_encoder *hse) {
         LOG("ss Found match of %d bytes at %d\n", match_length, match_pos);
         hse->match_pos = match_pos;
         hse->match_length = match_length;
-        ASSERT(match_pos <= 1 << HEATSHRINK_ENCODER_WINDOW_BITS(hse) /*window_length*/);
+        ASSERT(match_pos <= 1 << HEATSHRINK_ENCODER_WINDOW_BITS(hse) /* window_length */);
 
         return HSES_YIELD_TAG_BIT;
     }
